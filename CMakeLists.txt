@@ -1,4 +1,4 @@
-# Cmake required
+# CMake required
 cmake_minimum_required(VERSION 3.10)
 
 # Set project name and version
@@ -16,26 +16,31 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 # Add the header files directory
 include_directories(${PROJECT_SOURCE_DIR}/include)
 
-# Add source files
-file(GLOB SOURCES ${PROJECT_SOURCE_DIR}/src/*.cpp)
+# Create a library from the header file (bmp_reader.hpp doesn't need compilation)
+add_library(BMP_LIB INTERFACE)
 
-# Add the executable
-add_executable(BSCII ${SOURCES})
+# Link the header to the library
+target_include_directories(BMP_LIB INTERFACE ${PROJECT_SOURCE_DIR}/include)
 
-# Add AddressSanitizer flags to the executable target
-target_compile_options(BSCII PRIVATE -fsanitize=address -Wall -Wextra -pedantic -O2)
+# Add the executable for the tests
+add_executable(BSCII_tests ${PROJECT_SOURCE_DIR}/test/test.cpp)
 
-# Add a custom command to run the executable after building it
-add_custom_command(TARGET BSCII
-    COMMENT "Running BSCII after build..."
-    COMMENT "___________________________________________________________"
+# Link the BMP_LIB library to the test executable
+target_link_libraries(BSCII_tests BMP_LIB)
+
+# Add AddressSanitizer flags for the test executable
+target_compile_options(BSCII_tests PRIVATE -fsanitize=address -Wall -Wextra -pedantic -O2)
+target_link_options(BSCII_tests PRIVATE -fsanitize=address)
+
+# Add a custom command to run the tests after building them
+add_custom_command(TARGET BSCII_tests
+    COMMENT "Running tests after build..."
     POST_BUILD
-    COMMAND ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/BSCII
+    COMMAND ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/BSCII_tests
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
-# Add a custom target that depends on the main executable
-add_custom_target(run ALL
-    DEPENDS BSCII
+# Add a custom target that depends on the test executable
+add_custom_target(test_run ALL
+    DEPENDS BSCII_tests
 )
-
