@@ -16,11 +16,49 @@
 #include <iostream>
 #include <string>
 #include <cstdint>
+#include <vector>
+#include <memory>
+#include <filesystem>
+#include <exception>
+#include <set>
 
 
 
 //-------------------------------------------------------------------------------------------------
-//  Definition of the file header structure
+//  Predefined constants.
+//-------------------------------------------------------------------------------------------------
+/**
+ * @brief The header field used to identify the BMP and DIB file is 0x42 0x4D in hexadecimal,
+ * @brief same as BM in ASCII. The following entries are possible:
+ * @brief BM -> Windows 3.1x, 95, NT, ... etc.
+ * @brief BA -> OS/2 struct bitmap array
+ * @brief CI -> OS/2 struct color icon
+ * @brief CP -> OS/2 const color pointer
+ * @brief IC -> OS/2 struct icon
+ * @brief PT -> OS/2 pointer
+ * 
+*/
+const std::set<uint16_t> validIdentifier = {
+  0x4D42, // BM
+  0x4142, // BA
+  0x4349, // CI
+  0x4350, // CP
+  0x4943, // IC
+  0x5450  // PT
+};
+
+
+constexpr int BITMAPFILEHEADERLENGTH      = 12;
+constexpr int BITMAPCOREHEADERLENGTH      = 12;
+constexpr int OS22XBITMAPHEADERLENGTH     = 64;
+constexpr int BITMAPINFOHEADERLENGTH      = 40;
+constexpr int BITMAPV2INFOHEADERLENGTH    = 52;
+constexpr int BITMAPV3INFOHEADERLENGTH    = 56;
+constexpr int BITMAPV4HEADERLENGTH       = 108;
+constexpr int BITMAPV5INFOHEADERLENGTH   = 124;
+
+//-------------------------------------------------------------------------------------------------
+//  Definition of the file header structure.
 //-------------------------------------------------------------------------------------------------
 /**
  * @brief Store general information about the bitmap image file.
@@ -29,11 +67,27 @@
 */
 #pragma pack(push, 1)
 struct BITMAPFILEHEADER {
-  uint16_t file_type;             /* The header field used to identify the BMP */
-  uint32_t file_size;             /* The size of the BMP file in bytes */
-  uint16_t reserved1;             /* Reserved. Must be set to 0 */
-  uint16_t reserved2;             /* Reserved. Must be set to 0 */
-  uint32_t offset;                /* Address of the byte where the bitmap data can be found */
+  BITMAPFILEHEADER() = default;
+
+  [[nodiscard]] bool isValid() const {
+    if (validIdentifier.find(file_type) == validIdentifier.end()) return false;
+    return true;
+  }
+
+  void print() const {
+    std::cout << "BITMAPFILEHEADER: " << "\n";
+    std::cout << "File Type: " << std::hex << file_type << std::dec << "\n";
+    std::cout << "File Size: " << file_size << "\n";
+    std::cout << "Reserved 1: " << reserved1 << "\n";
+    std::cout << "Reserved 2: " << reserved2 << "\n";
+    std::cout << "Offset: " << offset << "\n";
+  }
+
+  uint16_t file_type = 0;         /* The header field used to identify the BMP */
+  uint32_t file_size = 0;         /* The size of the BMP file in bytes */
+  uint16_t reserved1 = 0;         /* Reserved. Must be set to 0 */
+  uint16_t reserved2 = 0;         /* Reserved. Must be set to 0 */
+  uint32_t offset    = 0;         /* Address of the byte where the bitmap data can be found */
 };
 #pragma pack(pop)
 
@@ -42,21 +96,50 @@ struct BITMAPFILEHEADER {
 // Definitions for all of the 7 variants of DIB headers.
 //-------------------------------------------------------------------------------------------------
 /**
+ * @brief Interface for the 7 types of the headers.
+ * 
+*/
+class HeaderInterface {
+  public:
+    virtual ~HeaderInterface() = default;
+    uint32_t header_size;         /* Size of this structure in bytes */
+    uint32_t bitmap_width;        /* Bitmap width in pixels */
+    uint32_t bitmap_height;       /* Bitmap height in pixel */
+    uint16_t color_planes;        /* Number of bit planes (color depth) */
+    uint16_t bits_per_pixel;      /* Number of bits per pixel per plane */
+};
+
+/**
  * @brief DIB header (bitmap information header).
  * @brief BITMAPCOREHEADER/OS21XBITMAPHEADER
  * @brief Source: https://www.fileformat.info/format/os2bmp/egff.htm
  *
 */
 #pragma pack(push, 1)
-struct BITMAPCOREHEADER {
-  uint32_t header_size;           /* Size of this structure in bytes */
-  uint32_t bitmap_width;          /* Bitmap width in pixels */
-  uint32_t bitmap_height;         /* Bitmap height in pixel */
-  uint16_t color_planes;          /* Number of bit planes (color depth) */
-  uint16_t bits_per_pixel;        /* Number of bits per pixel per plane */
-};
+struct BITMAPCOREHEADER : public HeaderInterface {};
 #pragma pack(pop)
 
+/**
+ * @brief Indexed color images may be compressed with 4-bit or 8-bit RLE or Huffman 1D algorithm.
+ * @brief OS/2 BITMAPCOREHEADER2 24bpp images may be compressed with the 24-bit RLE algorithm.
+ * @brief The 16bpp and 32bpp images are always stored uncompressed.
+ * @brief Note that images in all color depths can be stored without compression if so desired.
+ * @brief Source: https://en.wikipedia.org/wiki/BMP_file_format#Compression
+ * 
+*/
+enum Compression {    /*      BitCount      |        Pixel Storage         |   Height Sign   */
+  BI_RGB,             /*   Any except zero  |    Two-dimensional array     |        +/-      */
+  BI_RLE8,            /*         8          |         RLE encoding         |         +       */
+  BI_RLE4,            /*         4          |         RLE encoding         |         +       */
+  BI_BITFIELDS,       /*    16 and 32  | Two-dim array with color channel masks |   +/−      */
+  BI_JPEG,            /*         0          |   In an embedded JPEG file   |         -       */
+  BI_PNG,             /*         0          |   In an embedded PNG file    |         -       */
+  BI_ALPHABITFIELDS,  /*   16 and 32   | Two-dim array with color channel masks |   +/−      */
+
+  BI_CMYK = 11,       /*             The image is an uncompressed CMYK format.               */
+  BI_CMYKRLE8,        /* A CMYK format that uses RLE compr for bitmaps with 8 bits per pixel */
+  BI_CMYKRLE4         /* A CMYK format that uses RLE compr for bitmaps with 4 bits per pixel */
+};
 
 /**
  * @brief Adds halftoning. Adds RLE and Huffman 1D compression.
@@ -65,9 +148,8 @@ struct BITMAPCOREHEADER {
  * 
 */
 #pragma pack(push, 1)
-struct OS22XBITMAPHEADER {
-  BITMAPCOREHEADER header;        /* This header contains info from previous header */
-	uint32_t compression;           /* Bitmap compression scheme */
+struct OS22XBITMAPHEADER : public BITMAPCOREHEADER {
+	Compression compression;        /* Bitmap compression scheme */
 	uint32_t bitmap_size;           /* Size of bitmap data in bytes */
 	uint32_t h_px_res;              /* X resolution of display device */
 	uint32_t v_px_res;              /* Y resolution of display device */
@@ -79,8 +161,27 @@ struct OS22XBITMAPHEADER {
 	uint16_t rendering;             /* Halftoning algorithm used */
 	uint32_t size1;                 /* Reserved for halftoning algorithm use */
 	uint32_t size2;                 /* Reserved for halftoning algorithm use */
-	uint32_t color_encoding;         /* Color model used in bitmap */
+	uint32_t color_encoding;        /* Color model used in bitmap */
 	uint32_t identifier;            /* Reserved for application use */
+
+
+  // EXAMPLE 
+  /*
+  void print() const override {
+    BITMAPCOREHEADER::print(); // Call the base class print method
+    std::cout << "OS22XBITMAPHEADER specific fields:\n";
+    std::cout << "  Compression: " << compression << "\n";
+    std::cout << "  Bitmap Size: " << bitmap_size << " bytes\n";
+    std::cout << "  Horizontal Resolution: " << h_px_res << " pixels/meter\n";
+    std::cout << "  Vertical Resolution: " << v_px_res << " pixels/meter\n";
+    std::cout << "  Colors: " << colors << "\n";
+    std::cout << "  Important Colors: " << important_colors << "\n";
+    // Add other fields as needed
+  }
+  */
+
+
+
 };
 #pragma pack(pop)
 
@@ -94,8 +195,7 @@ struct OS22XBITMAPHEADER {
  * 
 */
 #pragma pack(push, 1)
-struct BITMAPINFOHEADER {
-  BITMAPCOREHEADER header;        /* This header contains info from previous header */
+struct BITMAPINFOHEADER : public BITMAPCOREHEADER {
   uint32_t  compression;          /* This value indicates the format of the image */
   uint32_t  bitmap_size;          /* This value is the size in bytes of the image data */
   int32_t   x_px_per_meter;       /* Specifies the horizontal print resolution */
@@ -111,8 +211,7 @@ struct BITMAPINFOHEADER {
  * @brief Source: https://formats.kaitai.io/bmp/
 */
 #pragma pack(push, 1)
-struct BITMAPV2INFOHEADER {
-  BITMAPINFOHEADER header;        /* This header contains info from previous header */
+struct BITMAPV2INFOHEADER : public BITMAPINFOHEADER {
   uint32_t red_mask;              /* Color mask that specifies the 'color' component */
   uint32_t green_mask;            /* of each pixel, valid only if the Compression */
   uint32_t blue_mask;             /* member is set to BI_BITFIELDS */
@@ -126,8 +225,7 @@ struct BITMAPV2INFOHEADER {
  * 
 */
 #pragma pack(push, 1)
-struct BITMAPV3INFOHEADER {
-  BITMAPV2INFOHEADER header;      /* This header contains info from previous header */
+struct BITMAPV3INFOHEADER : public BITMAPV2INFOHEADER {
   uint32_t alpha_mask;            /* Alpha channel bit mask that specifies the transparency */
 };
 #pragma pack(pop)
@@ -154,9 +252,9 @@ typedef int32_t FXPT2DOT30;
  * 
 */
 struct CIEXYZ {
-  FXPT2DOT30 ciexyzX;
-  FXPT2DOT30 ciexyzY;
-  FXPT2DOT30 ciexyzZ;
+  FXPT2DOT30 xyz_x;
+  FXPT2DOT30 xyz_y;
+  FXPT2DOT30 xyz_z;
 };
 
 /**
@@ -166,9 +264,9 @@ struct CIEXYZ {
  * 
 */
 struct CIEXYZTRIPLE {
-  CIEXYZ ciexyzRed;
-  CIEXYZ ciexyzGreen;
-  CIEXYZ ciexyzBlue;
+  CIEXYZ xyz_red;
+  CIEXYZ xyz_green;
+  CIEXYZ xyz_blue;
 };
 
 /**
@@ -178,10 +276,9 @@ struct CIEXYZTRIPLE {
  * 
 */
 #pragma pack(push, 1)
-struct BITMAPV4HEADER {
-  BITMAPV3INFOHEADER header;      /* This header contains info from previous header */
+struct BITMAPV4HEADER : public BITMAPV3INFOHEADER  {
   uint32_t type;                  /* Color space type */
-  CIEXYZTRIPLE bV4Endpoints;      /* Specifies the coordinates of the three colors */
+  CIEXYZTRIPLE endpoints;      /* Specifies the coordinates of the three colors */
   uint32_t gamma_red;             /* Gamma red coordinate scale value */
   uint32_t gamma_green;           /* Gamma green coordinate scale value */
   uint32_t gamma_blue;            /* Gamma blue coordinate scale value */
@@ -196,8 +293,7 @@ struct BITMAPV4HEADER {
  * 
 */
 #pragma pack(push, 1)
-struct BITMAPV5HEADER {
-  BITMAPV4HEADER header;          /* This header contains info from previous header */
+struct BITMAPV5HEADER : public BITMAPV4HEADER {
   uint32_t intent;                /* Rendering intent for bitmap */
   uint32_t profile_data;          /* The offset from the start of the header to the profile data.*/
   uint32_t profile_size;          /* Size, in bytes, of embedded profile data */
@@ -206,9 +302,59 @@ struct BITMAPV5HEADER {
 #pragma pack(pop)
 
 
+/**
+ * @brief Factory class for creating bitmap header.
+ * @brief This block of bytes tells the application detailed information about the image,
+ * @brief which will be used to display the image on the screen. The block also matches
+ * @brief the header used internally by Windows and OS/2 and has several different variants.
+ * @brief All of them contain a dword (32-bit) field, specifying their size, so that an
+ * @brief application can easily determine which header is used in the image. The reason that
+ * @brief there are different headers is that Microsoft extended the DIB format several times.
+ * @brief The new extended headers can be used with some GDI functions instead of the older ones,
+ * @brief providing more functionality. Since the GDI supports a function for loading bitmap files,
+ * @brief typical Windows applications use that functionality. One consequence of this is that for
+ * @brief such applications, the BMP formats that they support match the formats supported by the
+ * @brief Windows version being run.
+ * 
+*/
+class BitmapHeaderFactory {
+  public:
+    /**
+     * @brief Create a Color Table object based on the DIB header size.
+     * @param bitsPerPixel Number of bits per pixel (typically 24 or 32).
+     * @return std::unique_ptr<ColorTable> A unique pointer to the created ColorTable object.
+    */
+
+   /*
+    static std::unique_ptr<ColorTable> createBitmapHeader(uint16_t bitsPerPixel) {
+      auto colorTable = std::make_unique<ColorTable>();
+
+      if (bitsPerPixel == 32) {
+        // TODO: create Color Table vector 32 bit.
+      } else if (bitsPerPixel == 24) {
+        // TODO: create Color Table vector 24 bit.
+      }
+      // TODO: return empty vector.
+    }
+    */
+};
+
+
 //-------------------------------------------------------------------------------------------------
-// Definition of the color table
+// Definition of the color table.
 //-------------------------------------------------------------------------------------------------
+/**
+ * @brief Interface for the 2 types of the colors.
+ * 
+*/
+class ColorInterface {
+  public:
+    virtual ~ColorInterface() = default;
+    uint8_t blue;                   /* Blue component */
+    uint8_t green;                  /* Green component */
+    uint8_t red;                    /* Red component */
+};
+
 /**
  * @brief The RGBQUAD structure describes a color consisting of
  * @brief relative intensities of the colors and transparency.
@@ -216,10 +362,7 @@ struct BITMAPV5HEADER {
  * 
 */
 #pragma pack(push, 1)
-struct RGBQUAD {
-  uint8_t blue;                   /* Blue component */
-  uint8_t green;                  /* Green component */
-  uint8_t red;                    /* Red component */
+struct RGBQUAD : public ColorInterface{
   uint8_t reserved;               /* Reserved (often used as Alpha channel) */
 };
 #pragma pack(pop)
@@ -231,262 +374,115 @@ struct RGBQUAD {
  * 
 */
 #pragma pack(push, 1)
-struct RGBTRIPLE {
-  uint8_t blue;                   /* Blue component */
-  uint8_t green;                  /* Green component */
-  uint8_t red;                    /* Red component */
-};
+struct RGBTRIPLE : public ColorInterface {};
 #pragma pack(pop)
 
 
-
-/*
-  TODO: Color tables
-
-enum class ColorTableType {
-  NONE,
-  RGB_TRIPLE,
-  RGB_QUAD
-};
+/**
+ * @brief Color Table structure.
+ * 
 */
+class ColorTable {
+  private:
+    std::vector<std::unique_ptr<ColorInterface>> colors;
+  public:
+  /**
+   * @brief Add color to the vector.
+   * 
+   * @param color 
+  */
+    void addColor(std::unique_ptr<ColorInterface> color) {
+      colors.push_back(std::move(color));
+    }
+};
+
+
+/**
+ * @brief Factory class for creating ColorTable.
+ * @brief The color table (palette) occurs in the BMP image file directly after the BMP file
+ * @brief header, the DIB header, and after the optional three or four bitmasks if the
+ * @brief BITMAPINFOHEADER header with BI_BITFIELDS (12 bytes) or BI_ALPHABITFIELDS (16 bytes)
+ * @brief option is used.
+ * 
+*/
+class ColorTableFactory {
+  public:
+    /**
+     * @brief Create a Color Table object based on the bits per pixel.
+     * @param bitsPerPixel Number of bits per pixel (typically 24 or 32).
+     * @return std::unique_ptr<ColorTable> A unique pointer to the created ColorTable object.
+    */
+    static std::unique_ptr<ColorTable> createColorTable(uint16_t bitsPerPixel) {
+      auto colorTable = std::make_unique<ColorTable>();
+
+      if (bitsPerPixel == 32) {
+        // TODO: create Color Table vector 32 bit.
+      } else if (bitsPerPixel == 24) {
+        // TODO: create Color Table vector 24 bit.
+      }
+      // TODO: return empty vector.
+    }
+};
+
+
+//-------------------------------------------------------------------------------------------------
+// Definition of the Image Data Pixel Array structure.
+//-------------------------------------------------------------------------------------------------
 
 
 
 
 
 
-
-
-
-/*
-
+//-------------------------------------------------------------------------------------------------
+// Creating structure of the BMP file.
+//-------------------------------------------------------------------------------------------------
+/**
+ * @brief 
+ * 
+*/
 class BMPRDR {
   public:
-    BMPRDR(const std::string & filename);
-    BMPRDR(const BMPRDR &) = delete;
-    BMPRDR(BMPRDR &&) = delete;
-    BMPRDR & operator=(const BMPRDR &) = delete;
-    BMPRDR & operator=(BMPRDR &&) = delete;
-    ~BMPRDR() = default;
-
-
-
-
-
-  private:
-
+    BMPRDR(const std::filesystem::path & path) {
+      if (std::filesystem::exists(path)) {
+        std::ifstream file(path);
+        if (file.is_open()) {
+          
+          // Creating a BITMAPFILEHEADER structure
+          bmp_info.file_header = std::make_unique<BITMAPFILEHEADER>();
+          file.read(reinterpret_cast<char*>(bmp_info.file_header.get()), BITMAPFILEHEADERLENGTH);
+          if (!file) throw std::runtime_error("Error reading BITMAPFILEHEADER");
+          if (!bmp_info.file_header->isValid()) throw std::runtime_error("Not a BMP file");
 
 
 
 
 
 
-};
 
-*/
-// SOME OF THE OLD LOGICS
-/*
-#include <fstream>
-#include <iostream>
-#include <string>
-#include <sstream>
-#include <algorithm>
-#include <cstring>
+          file.close();
+        } else throw std::runtime_error("Failed to open the file");
 
-using namespace std;
+      } else throw std::runtime_error("File does not exist");
+    }
 
-#define NORMAL_MODE 1
+    private:
+      struct BMPINFO {
+        std::unique_ptr<BITMAPFILEHEADER> file_header;
+        std::unique_ptr<HeaderInterface> bitmap_header;
+        std::unique_ptr<ColorInterface> color_table;
 
+    };
 
-struct Info {
-  string filepath;
-  string format;
-  size_t length;
-  size_t bitmap_location;
-  size_t width;
-  size_t height;
-  size_t data_offset;
-  size_t bit_per_pix;
-  size_t raw_bitmap;
+    BMPINFO bmp_info;
 };
 
 
 
-size_t takeData(int start_byte, int end_byte, size_t size, unsigned char *bytes);
-void printInfo(const Info& PictureInfo);
-
-int main(int argc, char* argv[]) {
-  if (argc < 2) {
-    cout << "Not enough args" << endl;
-    return EXIT_FAILURE;
-  }
-
-  if (argc > 2) {
-    cout << "Too many args" << endl;
-    return EXIT_FAILURE;
-  }
-
-  string filename = argv[1];
-  ifstream picture(filename, ios::binary);
-
-  if (!picture) {
-    cout << "Cannot read file: " << filename << endl;
-    return EXIT_FAILURE;
-  }
-
-  Info PictureInfo;
-  PictureInfo.filepath = argv[1];
-
-  // Перемещаем указатель в конец файла
-  picture.seekg(0, ios::end);
-  // Получаем позицию указателя, которая равна размеру файла
-  streampos length = picture.tellg();
-  // Возвращаем указатель в начало файла, если собираемся с ним работать
-  picture.seekg(0, ios::beg);
-
-  PictureInfo.length = length;
-  unsigned char* bytes = new unsigned char[length];
-
-  picture.read(reinterpret_cast<char*>(bytes), length);
-  picture.close();
-
-  if (bytes[0] == 0x42 && bytes[1] == 0x4D) {
-    PictureInfo.format = "BMP";
-  }
-
-  PictureInfo.bitmap_location = takeData(10, 14, 4, bytes);
-  PictureInfo.width = takeData(18, 22, 4, bytes);
-  PictureInfo.height = takeData(22, 26, 4, bytes);
-  PictureInfo.bit_per_pix = takeData(28, 30, 2, bytes);
-  PictureInfo.raw_bitmap = takeData(34, 38, 4, bytes);
-
-  printInfo(PictureInfo);
-
-  //for (size_t i = PictureInfo.bitmap_location; i < PictureInfo.bitmap_location + PictureInfo.raw_bitmap; i++){
-  //  cout << static_cast<int>(bytes[i]) << ' ';
-  //}
-  cout << endl;
-
-  size_t counter = 0;
-  size_t lum_len = PictureInfo.raw_bitmap / 3;
-  int* luminocity = new int[lum_len];
-  memset(luminocity, 0, lum_len * sizeof(int));
-
-  if ((PictureInfo.width * 3) % 4 == 0) {
-    //   Y = 0.299R + 0.587G + 0.114B
-    for (size_t i = PictureInfo.bitmap_location + PictureInfo.raw_bitmap; i > PictureInfo.bitmap_location;){
-      float B = (0.114 * static_cast<int>(bytes[i--]));
-      float G = (0.587 * static_cast<int>(bytes[i--]));
-      float R = (0.299 * static_cast<int>(bytes[i--]));
-
-      luminocity[counter++] = static_cast<int>(B + G + R);
-    }
-  } else {
-    for (size_t i = PictureInfo.bitmap_location + PictureInfo.raw_bitmap; i > PictureInfo.bitmap_location;){
-    f (counter % PictureInfo.width == 0) i -= 2;
-      float B = (0.114 * static_cast<int>(bytes[i--]));
-      float G = (0.587 * static_cast<int>(bytes[i--]));
-      float R = (0.299 * static_cast<int>(bytes[i--]));
-
-      luminocity[counter++] = static_cast<int>(B + G + R);
-    }
-  }
-  delete[] bytes;
-
-  //for (size_t i = 0; i < lum_len; i++){
-  //  cout << luminocity[i] << ' ';
-  //  if ((i + 1) % PictureInfo.width == 0) cout << endl;
-  //}
-
-  const char* ASCII_DENSITY = " .:-+*#%@";
-  char* ascii = new char[lum_len];
-
-  for (size_t i = 0; i < lum_len; i++){
-    # if NORMAL_MODE
-  f (luminocity[i] <= 25) ascii[i] = ASCII_DENSITY[0];
-  f (luminocity[i] > 25 && luminocity[i] <= 50) ascii[i] = ASCII_DENSITY[1];
-  f (luminocity[i] > 50 && luminocity[i] <= 75) ascii[i] = ASCII_DENSITY[2];
-  f (luminocity[i] > 75 && luminocity[i] <= 100) ascii[i] = ASCII_DENSITY[3];
-  f (luminocity[i] > 100 && luminocity[i] <= 125) ascii[i] = ASCII_DENSITY[4];
-  f (luminocity[i] > 125 && luminocity[i] <= 150) ascii[i] = ASCII_DENSITY[5];
-  f (luminocity[i] > 175 && luminocity[i] <= 200) ascii[i] = ASCII_DENSITY[6];
-  f (luminocity[i] > 200 && luminocity[i] <= 225) ascii[i] = ASCII_DENSITY[7];
-  f (luminocity[i] > 225) ascii[i] = ASCII_DENSITY[8];
-    # else
-  f (luminocity[i] <= 25) ascii[i] = ASCII_DENSITY[8];
-  f (luminocity[i] > 25 && luminocity[i] <= 50) ascii[i] = ASCII_DENSITY[7];
-  f (luminocity[i] > 50 && luminocity[i] <= 75) ascii[i] = ASCII_DENSITY[6];
-  f (luminocity[i] > 75 && luminocity[i] <= 100) ascii[i] = ASCII_DENSITY[5];
-  f (luminocity[i] > 100 && luminocity[i] <= 125) ascii[i] = ASCII_DENSITY[4];
-  f (luminocity[i] > 125 && luminocity[i] <= 150) ascii[i] = ASCII_DENSITY[3];
-  f (luminocity[i] > 175 && luminocity[i] <= 200) ascii[i] = ASCII_DENSITY[2];
-  f (luminocity[i] > 200 && luminocity[i] <= 225) ascii[i] = ASCII_DENSITY[1];
-  f (luminocity[i] > 225) ascii[i] = ASCII_DENSITY[0];
-    # endif
-  }
-  delete[] luminocity;
-
-  char* mirrored_picture = new char[lum_len]; 
-  int row = PictureInfo.width;
-  int index = 0;
-
-  for (size_t i = 0; i < lum_len; i += row) {
-  nt start = i;
-  nt end = i + row - 1;
-
-    for (int j = end; j >= start; j--) {
-      mirrored_picture[index++] = ascii[j];
-    }
-  }
-  delete[] ascii;
-
-  for (size_t i = 0, height = 1; i < lum_len && height < PictureInfo.height; i++){
-    cout << mirrored_picture[i] << ' ';
-  f ((i + 1) % PictureInfo.width == 0) {
-      cout << endl;
-      height++;
-    }
-  }
-  cout << endl;
-  delete[] mirrored_picture;
-
-  return EXIT_SUCCESS;
-}
-
-size_t takeData(int start_byte, int end_byte, size_t size, unsigned char *bytes){
-  unsigned char* b = new unsigned char[size];
-  for (size_t i = 0; i < size; i++){
-    b[i] = 0;
-  }
-
-  for (int i = start_byte; i < end_byte; i++) {
-    b[i - start_byte] = bytes[i];
-  }
-  size_t ans;
-
-  if (size == 4){
-    ans = b[0] | (b[1] << 8) | (b[2] << 16) | (b[3] << 24);
-  }
-  if (size == 2){
-    ans = b[0] | (b[1] << 8);
-  }
-  delete[] b;
-  return ans;
-}
-
-void printInfo(const Info& PictureInfo){
-  cout << "Filepath: " << PictureInfo.filepath << endl;
-  cout << "Format: " << PictureInfo.format << endl;
-  cout << "Length: " << PictureInfo.length << endl;
-  cout << "Width: " << PictureInfo.width << endl;
-  cout << "Height: " << PictureInfo.height << endl;
-  cout << "Number of bits per pixel: " << PictureInfo.bit_per_pix << endl;
-  cout << "Offset where the pixel array (bitmap data) can be found: " << PictureInfo.bitmap_location << endl;
-  cout << "Size of the raw bitmap data: " << PictureInfo.raw_bitmap << endl;
-}
 
 
-*/
+
+
 
 
 
