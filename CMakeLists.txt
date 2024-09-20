@@ -36,7 +36,7 @@ add_executable(BSCII_tests ${PROJECT_SOURCE_DIR}/test/test.cpp)
 target_link_libraries(BSCII_tests BMP_LIB)
 
 # Add AddressSanitizer flags for the test executable
-target_compile_options(BSCII_tests PRIVATE -fsanitize=address -Wall -Wextra -pedantic -O2)
+target_compile_options(BSCII_tests PRIVATE -fsanitize=address -Wall -Wextra -pedantic -O2 -ggdb)
 target_link_options(BSCII_tests PRIVATE -fsanitize=address)
 
 # Add a custom command to run the tests after building them
