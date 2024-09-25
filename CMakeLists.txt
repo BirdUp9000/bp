@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.10)
 
 # Set project name and version
-project(BSCII VERSION 1.0)
+project(CBMPRDR VERSION 1.0)
 
 # Check if the compiler supports C++20
 include(CheckCXXCompilerFlag)

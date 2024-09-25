@@ -1,5 +1,6 @@
 #ifndef BMP_READER_LIB_HPP
 #define BMP_READER_LIB_HPP
+
 /**
  * @file bmp_reader.hpp
  * @author Artem Romanov linkedin.com/in/a-rmn/
@@ -13,14 +14,12 @@
 
 #include <fstream>
 #include <iostream>
-#include <string>
 #include <cstdint>
 #include <vector>
 #include <memory>
 #include <filesystem>
-#include <exception>
 #include <set>
-#include <variant>
+
 
 //-------------------------------------------------------------------------------------------------
 //  Predefined constants.
@@ -69,12 +68,12 @@ constexpr int BITMAPV5HEADERLENGTH       = 124;
 #pragma pack(push, 1)
 class BITMAPFILEHEADER {
   public:
-  bool isValid() const {
-    if (validIdentifier.find(file_type) == validIdentifier.end()) return false;
+  [[nodiscard]] bool isValid() const {
+    if (!validIdentifier.contains(file_type)) return false;
     return true;
   }
 
-  std::ostream & operator<<(std::ostream & os) {
+  std::ostream & operator<<(std::ostream & os) const {
     os << "BITMAPFILEHEADER: "  << "\n";
     os << "File Type: "         << std::hex << file_type << std::dec << "\n";
     os << "File Size: "         << file_size << "\n";
@@ -84,11 +83,11 @@ class BITMAPFILEHEADER {
     return os;
   }
 
-  uint16_t getFileType() const {return file_type;}
-  uint32_t getFileSize() const {return file_size;}
-  uint16_t getReserved1() const {return reserved1;}
-  uint16_t getReserved2() const {return reserved2;}
-  uint32_t getOffset() const {return offset;}
+  [[nodiscard]] uint16_t getFileType() const {return file_type;}
+  [[nodiscard]] uint32_t getFileSize() const {return file_size;}
+  [[nodiscard]] uint16_t getReserved1() const {return reserved1;}
+  [[nodiscard]] uint16_t getReserved2() const {return reserved2;}
+  [[nodiscard]] uint32_t getOffset() const {return offset;}
 
   private:
   uint16_t file_type {0};         /* The header field used to identify the BMP */
@@ -101,7 +100,7 @@ class BITMAPFILEHEADER {
 
 
 //-------------------------------------------------------------------------------------------------
-// Definitions for all of the 7 variants of DIB headers and wrappers for them. 
+// Definitions for all the 7 variants of DIB headers and wrappers for them.
 //-------------------------------------------------------------------------------------------------
 /**
  * @brief Parent class for HEADER's wrappers.
@@ -111,6 +110,8 @@ class HeaderInterface {
   public:
   virtual ~HeaderInterface() = default;
   virtual std::ostream & operator<<(std::ostream & os) const = 0;
+
+  //virtual uint32_t getHeaderSize() const = 0;
 };
 
 /**
@@ -149,13 +150,13 @@ template<typename HeaderType>
 struct HeaderWrapper final : public HeaderInterface {
   explicit HeaderWrapper(const HeaderType & _header) : header(_header) {}
 
-  std::ostream& operator<<(std::ostream& os) const override {
+  std::ostream & operator<<(std::ostream & os) const override {
     header.operator<<(os);
     return os;
   }
 
 private:
-  HeaderType header;
+  const HeaderType header;
 };
 
 /**
@@ -270,9 +271,9 @@ struct BITMAPV2INFOHEADER {
   }
 
   BITMAPINFOHEADER prev_header;
-  uint32_t red_mask;              /* Color mask that specifies the 'color' component */
-  uint32_t green_mask;            /* of each pixel, valid only if the Compression */
-  uint32_t blue_mask;             /* member is set to BI_BITFIELDS */
+  uint32_t red_mask         {0};  /* Color mask that specifies the 'color' component */
+  uint32_t green_mask       {0};  /* of each pixel, valid only if the Compression */
+  uint32_t blue_mask        {0};  /* member is set to BI_BITFIELDS */
 };
 #pragma pack(pop)
 
@@ -290,7 +291,7 @@ struct BITMAPV3INFOHEADER {
   }
 
   BITMAPV2INFOHEADER prev_header;
-  uint32_t alpha_mask;            /* Alpha channel bit mask that specifies the transparency */
+  uint32_t alpha_mask       {0};  /* Alpha channel bit mask that specifies the transparency */
 };
 #pragma pack(pop)
 
@@ -323,9 +324,9 @@ struct CIEXYZ {
     return os;
   }
 
-  FXPT2DOT30 xyz_x;
-  FXPT2DOT30 xyz_y;
-  FXPT2DOT30 xyz_z;
+  FXPT2DOT30 xyz_x {0};
+  FXPT2DOT30 xyz_y {0};
+  FXPT2DOT30 xyz_z {0};
 };
 #pragma pack(pop)
 
@@ -344,9 +345,9 @@ struct CIEXYZTRIPLE {
     return os;
   }
 
-  CIEXYZ xyz_red;
-  CIEXYZ xyz_green;
-  CIEXYZ xyz_blue;
+  CIEXYZ xyz_red    {0};
+  CIEXYZ xyz_green  {0};
+  CIEXYZ xyz_blue   {0};
 };
 #pragma pack(pop)
 
@@ -369,11 +370,11 @@ struct BITMAPV4HEADER {
   }
 
   BITMAPV3INFOHEADER prev_header;
-  uint32_t type;                  /* Color space type */
+  uint32_t type             {0};  /* Color space type */
   CIEXYZTRIPLE endpoints;         /* Specifies the coordinates of the three colors */
-  uint32_t gamma_red;             /* Gamma red coordinate scale value */
-  uint32_t gamma_green;           /* Gamma green coordinate scale value */
-  uint32_t gamma_blue;            /* Gamma blue coordinate scale value */
+  uint32_t gamma_red        {0};  /* Gamma red coordinate scale value */
+  uint32_t gamma_green      {0};  /* Gamma green coordinate scale value */
+  uint32_t gamma_blue       {0};  /* Gamma blue coordinate scale value */
 };
 #pragma pack(pop)
 
@@ -395,10 +396,10 @@ struct BITMAPV5HEADER {
   }
 
   BITMAPV4HEADER prev_header;
-  uint32_t intent;                /* Rendering intent for bitmap */
-  uint32_t profile_data;          /* The offset from the start of the header to the profile data.*/
-  uint32_t profile_size;          /* Size, in bytes, of embedded profile data */
-  uint32_t reserved;              /* This member has been reserved. Value should be set to zero */
+  uint32_t intent           {0};  /* Rendering intent for bitmap */
+  uint32_t profile_data     {0};  /* The offset from the start of the header to the profile data.*/
+  uint32_t profile_size     {0};  /* Size, in bytes, of embedded profile data */
+  uint32_t reserved         {0};  /* This member has been reserved. Value should be set to zero */
 };
 #pragma pack(pop)
 
@@ -406,7 +407,7 @@ struct BITMAPV5HEADER {
  * @brief Factroy for creating HEADER --> HEADER_WRAPPER --> HeaderInterface structure.
  * 
 */
-class HEADERFACTORY {
+class HeaderFactory {
   public:
   static std::unique_ptr<HeaderInterface> createBitmapHeader(std::ifstream & file) {
     // Read the header length
@@ -548,7 +549,7 @@ class ColorTableFactory {
      * @param bitsPerPixel Number of bits per pixel (typically 24 or 32).
      * @return std::unique_ptr<ColorTable> A unique pointer to the created ColorTable object.
     */
-    static std::unique_ptr<ColorTable> createColorTable(uint16_t bitsPerPixel) {
+    static std::unique_ptr<ColorTable> createColorTable(const uint16_t bitsPerPixel) {
       auto colorTable = std::make_unique<ColorTable>();
 
       if (bitsPerPixel == 32) {
@@ -579,22 +580,23 @@ class ColorTableFactory {
 */
 class BMPINFO {
   public:
-  BMPINFO(const std::filesystem::path & path) {
+  explicit BMPINFO(const std::filesystem::path & path) {
     if (std::filesystem::exists(path)) {
       std::ifstream file(path, std::ios::binary);
       if (file.is_open()) {
           
         // Creating a BITMAPFILEHEADER structure
+        if (!file) throw std::runtime_error("Error reading BITMAP FILE HEADER");
         file_header = std::make_unique<BITMAPFILEHEADER>();
         file.read(reinterpret_cast<char*>(file_header.get()), BITMAPFILEHEADERLENGTH);
-        if (!file) throw std::runtime_error("Error reading BITMAPFILEHEADER");
-        if (!file_header->isValid()) throw std::runtime_error("Not a BMP file");
+        if (!file_header->isValid()) throw std::runtime_error("Not a valid BMP file");
 
         // Creating a DIB HEADER.
-        bitmap_header = HEADERFACTORY::createBitmapHeader(file);
+        if (!file) throw std::runtime_error("Error reading DIB HEADER");
+        bitmap_header = HeaderFactory::createBitmapHeader(file);
 
         // Creating a COLOR TABLE
-
+        if (!file) throw std::runtime_error("Error reading COLOR TABLE");
 
         //
 
@@ -607,21 +609,21 @@ class BMPINFO {
   }
   
   friend std::ostream & operator<<(std::ostream & os, const BMPINFO & src) {
-    src.file_header.get()->operator<<(os);
-    src.bitmap_header.get()->operator<<(os);
+    src.file_header->operator<<(os);
+    src.bitmap_header->operator<<(os);
     /////// color table
     return os;
   }
 
-  const std::unique_ptr<BITMAPFILEHEADER> & getFileHeader() const {
+  [[nodiscard]] const std::unique_ptr<BITMAPFILEHEADER> & getFileHeader() const {
     return file_header;
   }
 
-  const std::unique_ptr<HeaderInterface> & getBitmapHeader() const {
+  [[nodiscard]] const std::unique_ptr<HeaderInterface> & getBitmapHeader() const {
     return bitmap_header;
   }
 
-  const std::unique_ptr<ColorInterface> & getColorTable() const {
+  [[nodiscard]] const std::unique_ptr<ColorInterface> & getColorTable() const {
     return color_table;
   }
 

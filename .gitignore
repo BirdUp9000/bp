@@ -9,6 +9,7 @@ cmake_install.cmake
 CTestTestfile.cmake
 Makefile
 build/
+cmake-build-debug
 
 # Compiled Object files
 *.slo
