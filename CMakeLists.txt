@@ -1,53 +1,112 @@
-# CMake required
+# ------------------------------------------------------------------
+# Project configuration
+# ------------------------------------------------------------------
 cmake_minimum_required(VERSION 3.10)
 
-# Set project name and version
-project(CBMPRDR VERSION 1.0)
+project(BP VERSION 0.0.0
+        DESCRIPTION "BP - BMP PHOTOS PROBE LIBRARY"
+        HOMEPAGE_URL "https://github.com/BirdUp9000/bp"
+        LANGUAGES CXX
+)
 
+# ------------------------------------------------------------------
 # Check if the compiler supports C++20
+# ------------------------------------------------------------------
 include(CheckCXXCompilerFlag)
 check_cxx_compiler_flag("-std=c++20" COMPILER_SUPPORTS_CXX20)
 
 if (COMPILER_SUPPORTS_CXX20)
-  set(CMAKE_CXX_STANDARD 20)
-  set(CMAKE_CXX_STANDARD_REQUIRED True)
+    set(CMAKE_CXX_STANDARD 20)
+    set(CMAKE_CXX_STANDARD_REQUIRED True)
 else()
-  message(FATAL_ERROR "The compiler does not support C++20.")
+    message(FATAL_ERROR "The compiler does not support C++20.")
 endif()
 
-# Set the output directories for build artifacts
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+# ------------------------------------------------------------------
+# Catch2 configuration
+# ------------------------------------------------------------------
+set(CATCH_SRC ${CMAKE_CURRENT_SOURCE_DIR}/external/catch2/catch_amalgamated.cpp)
 
-# Add the header files directory
-include_directories(${PROJECT_SOURCE_DIR}/include)
+# ------------------------------------------------------------------
+# Generate compile commands
+# ------------------------------------------------------------------
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Create a library from the header file (bmp_reader.hpp doesn't need compilation)
-add_library(BMP_LIB INTERFACE)
+# ------------------------------------------------------------------
+# Default build type: If no build type is specified, use Release.
+# ------------------------------------------------------------------
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    message(STATUS "Setting build type to 'Release' as none was specified.")
+    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build." FORCE)
+endif()
 
-# Link the header to the library
-target_include_directories(BMP_LIB INTERFACE ${PROJECT_SOURCE_DIR}/include)
+# ------------------------------------------------------------------
+# Header-only library
+# ------------------------------------------------------------------
+add_library(bp INTERFACE)
+target_include_directories(bp INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
-# Add the executable for the tests
-add_executable(BSCII_tests ${PROJECT_SOURCE_DIR}/test/test.cpp)
+# ------------------------------------------------------------------
+# Tests
+# ------------------------------------------------------------------
+enable_testing()
 
-# Link the BMP_LIB library to the test executable
-target_link_libraries(BSCII_tests BMP_LIB)
-
-# Add AddressSanitizer flags for the test executable
-target_compile_options(BSCII_tests PRIVATE -fsanitize=address -Wall -Wextra -pedantic -O2 -ggdb)
-target_link_options(BSCII_tests PRIVATE -fsanitize=address)
-
-# Add a custom command to run the tests after building them
-add_custom_command(TARGET BSCII_tests
-    COMMENT "Running tests after build..."
-    POST_BUILD
-    COMMAND ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/BSCII_tests
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+file(GLOB TEST_SOURCES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp"
 )
 
-# Add a custom target that depends on the test executable
-add_custom_target(test_run ALL
-    DEPENDS BSCII_tests
+add_executable(run_tests ${TEST_SOURCES} ${CATCH_SRC})
+
+target_include_directories(run_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/catch2
+)
+
+target_link_libraries(run_tests PRIVATE bp)
+target_compile_definitions(run_tests PRIVATE UNIT_TEST)
+
+target_compile_options(run_tests PRIVATE
+        -O0
+        -g
+        -ggdb3
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Werror
+        -D_GLIBCXX_DEBUG
+)
+
+target_link_options(run_tests PRIVATE
+        -fsanitize=address
+        -fprofile-arcs
+        -ftest-coverage
+)
+
+target_compile_options(bp INTERFACE
+        -O0
+        -g
+        -ggdb3
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Werror
+        -D_GLIBCXX_DEBUG
+)
+
+target_link_options(bp INTERFACE
+        -fsanitize=address
+        -fprofile-arcs
+        -ftest-coverage
+)
+
+add_test(NAME BP_tests COMMAND run_tests --colour-mode ansi)
+
+add_custom_target(run_all_tests
+        COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
+        DEPENDS run_tests
+        COMMENT "Running all tests..."
+)
+
+add_custom_command(TARGET run_tests POST_BUILD
+        COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
+        COMMENT "Automatically running tests after build"
 )
