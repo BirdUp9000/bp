@@ -10,5 +10,5 @@ TEST_CASE("Сравнение чисел") {
 }
 
 TEST_CASE("Basic BP test") {
-    BP a();
+    BP abc("");
 }

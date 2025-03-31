@@ -1,0 +1,3 @@
+[submodule "external/BMP-ImageTestSuite"]
+	path = external/BMP-ImageTestSuite
+	url = https://github.com/jdelauney/BMP-ImageTestSuite.git
